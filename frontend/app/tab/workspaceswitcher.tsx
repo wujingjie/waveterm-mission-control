@@ -251,6 +251,7 @@ const WorkspaceSwitcherItem = ({
                     icon={workspace.icon}
                     color={workspace.color}
                     focusInput={isEditing}
+                    workspaceId={workspace.oid}
                     onTitleChange={(title) => setWorkspace({ ...workspace, name: title })}
                     onColorChange={(color) => setWorkspace({ ...workspace, color })}
                     onIconChange={(icon) => setWorkspace({ ...workspace, icon })}

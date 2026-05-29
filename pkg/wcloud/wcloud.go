@@ -65,8 +65,8 @@ func checkEndpointVar(endpoint string, debugName string, varName string) error {
 	if !wavebase.IsDevMode() {
 		return nil
 	}
-	if endpoint == "" || !strings.HasPrefix(endpoint, "https://") {
-		return fmt.Errorf("invalid %s, %s not set or invalid", debugName, varName)
+	if endpoint != "" && !strings.HasPrefix(endpoint, "https://") {
+		return fmt.Errorf("invalid %s, %s must start with https://", debugName, varName)
 	}
 	return nil
 }
@@ -75,8 +75,10 @@ func GetEndpoint() string {
 	if !wavebase.IsDevMode() {
 		return WCloudEndpoint
 	}
-	endpoint := WCloudEndpoint_VarCache
-	return endpoint
+	if WCloudEndpoint_VarCache != "" {
+		return WCloudEndpoint_VarCache
+	}
+	return WCloudEndpoint
 }
 
 func GetPingEndpoint() string {

@@ -1,5 +1,13 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { atoms, getApi } from "@/app/store/global";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget, makeIconClass } from "@/util/util";
+import * as WOS from "@/store/wos";
 import clsx from "clsx";
+import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
 import { Button } from "../element/button";
 import { Input } from "../element/input";
@@ -14,10 +22,6 @@ interface ColorSelectorProps {
 }
 
 const ColorSelector = memo(({ colors, selectedColor, onSelect, className }: ColorSelectorProps) => {
-    const handleColorClick = (color: string) => {
-        onSelect(color);
-    };
-
     return (
         <div className={clsx("color-selector", className)}>
             {colors.map((color) => (
@@ -25,12 +29,13 @@ const ColorSelector = memo(({ colors, selectedColor, onSelect, className }: Colo
                     key={color}
                     className={clsx("color-circle", { selected: selectedColor === color })}
                     style={{ backgroundColor: color }}
-                    onClick={() => handleColorClick(color)}
+                    onClick={() => onSelect(color)}
                 />
             ))}
         </div>
     );
 });
+ColorSelector.displayName = "ColorSelector";
 
 interface IconSelectorProps {
     icons: string[];
@@ -40,10 +45,6 @@ interface IconSelectorProps {
 }
 
 const IconSelector = memo(({ icons, selectedIcon, onSelect, className }: IconSelectorProps) => {
-    const handleIconClick = (icon: string) => {
-        onSelect(icon);
-    };
-
     return (
         <div className={clsx("icon-selector", className)}>
             {icons.map((icon) => {
@@ -52,19 +53,95 @@ const IconSelector = memo(({ icons, selectedIcon, onSelect, className }: IconSel
                     <i
                         key={icon}
                         className={clsx(iconClass, "icon-item", { selected: selectedIcon === icon })}
-                        onClick={() => handleIconClick(icon)}
+                        onClick={() => onSelect(icon)}
                     />
                 );
             })}
         </div>
     );
 });
+IconSelector.displayName = "IconSelector";
+
+type MCProject = {
+    id: string;
+    name: string;
+    repopath: string;
+};
+
+const MCProjectSelector = memo(({ workspaceId }: { workspaceId: string }) => {
+    const ws = useAtomValue(atoms.workspace);
+    const [projects, setProjects] = useState<MCProject[]>([]);
+    const [loading, setLoading] = useState(false);
+    const selectedId = (ws?.meta?.["mc:projectid"] as string) ?? "";
+
+    useEffect(() => {
+        const apiUrl = getApi().getEnv("MC_API_URL") ?? "http://127.0.0.1:3001";
+        const authKey = getApi().getEnv("MC_AUTH_KEY") ?? "";
+        if (!authKey) return;
+        setLoading(true);
+        fetch(`${apiUrl}/api/projects`, { headers: { Authorization: `Bearer ${authKey}` } })
+            .then((r) => (r.ok ? r.json() : []))
+            .then((data: MCProject[]) => setProjects(data ?? []))
+            .catch(() => setProjects([]))
+            .finally(() => setLoading(false));
+    }, []);
+
+    const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const projectId = e.target.value;
+        const project = projects.find((p) => p.id === projectId);
+        const meta: Record<string, string> = {
+            "mc:projectid": projectId,
+            "mc:projectname": project?.name ?? "",
+            "mc:repopath": project?.repopath ?? "",
+        };
+        if (!projectId) {
+            meta["mc:projectid"] = "";
+            meta["mc:projectname"] = "";
+            meta["mc:repopath"] = "";
+        }
+        fireAndForget(() =>
+            RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("workspace", workspaceId),
+                meta: meta as any,
+            })
+        );
+    };
+
+    return (
+        <div className="mt-2">
+            <div className="text-xs text-gray-400 mb-1">MC Project</div>
+            {loading ? (
+                <div className="text-xs text-gray-500">Loading…</div>
+            ) : (
+                <select
+                    value={selectedId}
+                    onChange={handleChange}
+                    className="w-full bg-zinc-800 border border-zinc-600 text-white text-sm rounded px-2 py-1 cursor-pointer"
+                >
+                    <option value="">— None —</option>
+                    {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                            {p.name}
+                        </option>
+                    ))}
+                </select>
+            )}
+            {selectedId && (
+                <div className="text-xs text-gray-500 mt-1 truncate">
+                    {(ws?.meta?.["mc:repopath"] as string) ?? ""}
+                </div>
+            )}
+        </div>
+    );
+});
+MCProjectSelector.displayName = "MCProjectSelector";
 
 interface WorkspaceEditorProps {
     title: string;
     icon: string;
     color: string;
     focusInput: boolean;
+    workspaceId: string;
     onTitleChange: (newTitle: string) => void;
     onColorChange: (newColor: string) => void;
     onIconChange: (newIcon: string) => void;
@@ -75,13 +152,13 @@ const WorkspaceEditorComponent = ({
     icon,
     color,
     focusInput,
+    workspaceId,
     onTitleChange,
     onColorChange,
     onIconChange,
     onDeleteWorkspace,
 }: WorkspaceEditorProps) => {
     const inputRef = useRef<HTMLInputElement>(null);
-
     const [colors, setColors] = useState<string[]>([]);
     const [icons, setIcons] = useState<string[]>([]);
 
@@ -113,6 +190,7 @@ const WorkspaceEditorComponent = ({
             />
             <ColorSelector selectedColor={color} colors={colors} onSelect={onColorChange} />
             <IconSelector selectedIcon={icon} icons={icons} onSelect={onIconChange} />
+            <MCProjectSelector workspaceId={workspaceId} />
             <div className="delete-ws-btn-wrapper">
                 <Button className="ghost red text-[12px] bold" onClick={onDeleteWorkspace}>
                     Delete workspace

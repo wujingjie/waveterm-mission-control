@@ -5,8 +5,13 @@ import { handleWaveAIContextMenu } from "@/app/aipanel/aipanel-contextmenu";
 import { waveAIHasSelection } from "@/app/aipanel/waveai-focus-utils";
 import { useTabBackground } from "@/app/block/blockutil";
 import { ErrorBoundary } from "@/app/element/errorboundary";
+import { MCPanelModel } from "@/app/mcpanel/mcpanel-model";
+import { MCPanelTasks } from "@/app/mcpanel/mcpanel-tasks";
 import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import * as WOS from "@/store/wos";
 import { useTabModelMaybe } from "@/app/store/tab-model";
 import { isBuilderWindow } from "@/app/store/windowtype";
 import { useWaveEnv } from "@/app/waveenv/waveenv";
@@ -623,10 +628,92 @@ type AIPanelComponentProps = {
     roundTopLeft: boolean;
 };
 
+const MCPanelTabContent = memo(({ roundTopLeft }: { roundTopLeft: boolean }) => {
+    const mcModel = MCPanelModel.getInstance();
+    const ws = jotai.useAtomValue(atoms.workspace);
+
+    // Load data when workspace changes
+    useEffect(() => {
+        mcModel.syncProjectId();
+    }, [ws?.meta?.["mc:projectid"]]);
+
+    // Start/stop SSE
+    useEffect(() => {
+        mcModel.startSSE();
+        return () => mcModel.stopSSE();
+    }, []);
+
+    return (
+        <div
+            className="bg-zinc-900/70 flex flex-col mt-1 h-[calc(100%-4px)]"
+            style={{
+                borderTopLeftRadius: roundTopLeft ? 10 : 0,
+                borderTopRightRadius: 10,
+                borderBottomRightRadius: 10,
+                borderBottomLeftRadius: 10,
+            }}
+        >
+            <MCPanelTasks />
+        </div>
+    );
+});
+MCPanelTabContent.displayName = "MCPanelTabContent";
+
+const MCPanelTabBar = memo(({ roundTopLeft }: { roundTopLeft: boolean }) => {
+    const ws = jotai.useAtomValue(atoms.workspace);
+    const mode = (ws?.meta?.["mc:panelmode"] as string) || "mc";
+
+    const setMode = (newMode: string) => {
+        const workspaceId = ws?.oid;
+        if (!workspaceId) return;
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("workspace", workspaceId),
+            meta: { "mc:panelmode": newMode } as any,
+        }).catch(() => {});
+    };
+
+    return (
+        <div className="flex flex-col h-full">
+            <div className="flex border-b border-zinc-700 flex-shrink-0">
+                <button
+                    onClick={() => setMode("mc")}
+                    className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                        mode === "mc"
+                            ? "text-white border-b-2 border-accent -mb-px"
+                            : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                >
+                    <i className="fa fa-satellite-dish mr-1.5" />
+                    MC
+                </button>
+                <button
+                    onClick={() => setMode("ai")}
+                    className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                        mode === "ai"
+                            ? "text-white border-b-2 border-accent -mb-px"
+                            : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                >
+                    <i className="fa fa-sparkles mr-1.5" />
+                    AI
+                </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+                {mode === "mc" ? (
+                    <MCPanelTabContent roundTopLeft={roundTopLeft} />
+                ) : (
+                    <AIPanelComponentInner roundTopLeft={roundTopLeft} />
+                )}
+            </div>
+        </div>
+    );
+});
+MCPanelTabBar.displayName = "MCPanelTabBar";
+
 const AIPanelComponent = ({ roundTopLeft }: AIPanelComponentProps) => {
     return (
         <ErrorBoundary>
-            <AIPanelComponentInner roundTopLeft={roundTopLeft} />
+            <MCPanelTabBar roundTopLeft={roundTopLeft} />
         </ErrorBoundary>
     );
 };

@@ -41,6 +41,7 @@ import {
 } from "./emain-platform";
 import { ensureHotSpareTab, setMaxTabCacheSize } from "./emain-tabview";
 import { getIsWaveSrvDead, getWaveSrvProc, getWaveSrvReady, runWaveSrv } from "./emain-wavesrv";
+import { McAuthKey, McAuthKeyEnvName, getMcSrvProc, runMcSrv } from "./emain-mcsrv";
 import {
     createBrowserWindow,
     createNewWaveWindow,
@@ -292,6 +293,7 @@ electronApp.on("before-quit", (e) => {
     }
     setGlobalIsQuitting(true);
     updater?.stop();
+    getMcSrvProc()?.kill("SIGINT");
     if (unamePlatform == "win32") {
         // win32 doesn't have a SIGINT, so we just let electron die, which
         // ends up killing wavesrv via closing it's stdin.
@@ -390,6 +392,8 @@ async function appMain() {
         console.log("second-instance event, argv:", argv, "workingDirectory:", workingDirectory);
         fireAndForget(createNewWaveWindow);
     });
+    // Inject MC auth key before spawning wavesrv so TerminalAdapter (in wavesrv) can call mcsrv.
+    process.env[McAuthKeyEnvName] = McAuthKey;
     try {
         await runWaveSrv(handleWSEvent);
     } catch (e) {
@@ -397,6 +401,10 @@ async function appMain() {
     }
     const ready = await getWaveSrvReady();
     console.log("wavesrv ready signal received", ready, Date.now() - startTs, "ms");
+    // Start mcsrv after wavesrv is ready — failure is non-fatal.
+    runMcSrv().catch((e) => {
+        console.log("mcsrv failed to start:", e.toString());
+    });
     await electronApp.whenReady();
     configureAuthKeyRequestInjection(electron.session.defaultSession);
     initIpcHandlers();

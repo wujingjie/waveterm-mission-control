@@ -341,6 +341,26 @@ function globalRefocus() {
     refocusNode(blockId);
 }
 
+function injectMCEnvIntoBlockDef(blockDef: BlockDef): void {
+    const ws = globalStore.get(atoms.workspace);
+    const projectId = ws?.meta?.["mc:projectid"];
+    if (!projectId) return;
+    const apiUrl = getApi().getEnv("MC_API_URL") ?? "http://127.0.0.1:3001";
+    const authKey = getApi().getEnv("MC_AUTH_KEY") ?? "";
+    const existing = (blockDef.meta["cmd:env"] as Record<string, string>) ?? {};
+    blockDef.meta["cmd:env"] = {
+        ...existing,
+        MC_PROJECT_ID: projectId,
+        MC_PROJECT_NAME: ws?.meta?.["mc:projectname"] ?? "",
+        MC_REPO: ws?.meta?.["mc:repopath"] ?? "",
+        MC_API_URL: apiUrl,
+        MC_AUTH_KEY: authKey,
+    };
+    if (blockDef.meta["cmd:cwd"] == null && ws?.meta?.["mc:repopath"]) {
+        blockDef.meta["cmd:cwd"] = ws.meta["mc:repopath"] as string;
+    }
+}
+
 function getDefaultNewBlockDef(): BlockDef {
     const adnbAtom = getSettingsKeyAtom("app:defaultnewblock");
     const adnb = globalStore.get(adnbAtom) ?? "term";
@@ -372,6 +392,7 @@ function getDefaultNewBlockDef(): BlockDef {
             termBlockDef.meta.connection = blockData.meta.connection;
         }
     }
+    injectMCEnvIntoBlockDef(termBlockDef);
     return termBlockDef;
 }
 

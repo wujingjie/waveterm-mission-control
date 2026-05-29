@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS activities;
+DROP TABLE IF EXISTS task_documents;
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS intents;
+DROP TABLE IF EXISTS agent_sessions;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS projects;
