@@ -403,6 +403,12 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 		cmdOpts.Interactive = true
 		cmdOpts.Login = true
 		cmdOpts.Cwd = blockMeta.GetString(waveobj.MetaKey_CmdCwd, "")
+		if cmdOpts.Cwd == "" {
+			// Fall back to MC workspace repo path for all terminals in an MC-bound workspace
+			cwdCtx, cwdCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cwdCancel()
+			cmdOpts.Cwd = getMCRepoPath(cwdCtx, bc.BlockId)
+		}
 		if cmdOpts.Cwd != "" {
 			cwdPath, err := wavebase.ExpandHomeDir(cmdOpts.Cwd)
 			if err != nil {
@@ -756,44 +762,36 @@ func (bc *ShellController) getBlockData_noErr() *waveobj.Block {
 	return blockData
 }
 
-func injectMCWorkspaceEnv(ctx context.Context, blockId string, rtn map[string]string) {
-	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
-	if err != nil || block == nil {
-		return
+// getMCWorkspaceForBlock returns the workspace for a given blockId using existing wstore helpers.
+// Returns nil if the block isn't in an MC-bound workspace.
+func getMCWorkspaceForBlock(ctx context.Context, blockId string) *waveobj.Workspace {
+	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
+	if err != nil || tabId == "" {
+		return nil
 	}
-	// ParentORef is "tab:<id>", extract the tab ID
-	parentORef := block.ParentORef
-	if len(parentORef) <= 4 || parentORef[:4] != "tab:" {
-		return
+	wsId, err := wstore.DBFindWorkspaceForTabId(ctx, tabId)
+	if err != nil || wsId == "" {
+		return nil
 	}
-	tabId := parentORef[4:]
+	ws, err := wstore.DBGet[*waveobj.Workspace](ctx, wsId)
+	if err != nil || ws == nil {
+		return nil
+	}
+	if _, ok := ws.Meta["mc:projectid"].(string); !ok {
+		return nil
+	}
+	if ws.Meta["mc:projectid"].(string) == "" {
+		return nil
+	}
+	return ws
+}
 
-	// Tab has no WorkspaceId field, so scan all workspaces for the one containing this tab
-	workspaces, err := wstore.DBGetAllObjsByType[*waveobj.Workspace](ctx, waveobj.OType_Workspace)
-	if err != nil {
-		return
-	}
-	var ws *waveobj.Workspace
-	for _, w := range workspaces {
-		for _, tid := range w.TabIds {
-			if tid == tabId {
-				ws = w
-				break
-			}
-		}
-		if ws != nil {
-			break
-		}
-	}
+func injectMCWorkspaceEnv(ctx context.Context, blockId string, rtn map[string]string) {
+	ws := getMCWorkspaceForBlock(ctx, blockId)
 	if ws == nil {
 		return
 	}
-
-	projectId, _ := ws.Meta["mc:projectid"].(string)
-	if projectId == "" {
-		return
-	}
-	rtn["MC_PROJECT_ID"] = projectId
+	rtn["MC_PROJECT_ID"], _ = ws.Meta["mc:projectid"].(string)
 	if v, ok := ws.Meta["mc:projectname"].(string); ok && v != "" {
 		rtn["MC_PROJECT_NAME"] = v
 	}
@@ -806,6 +804,38 @@ func injectMCWorkspaceEnv(ctx context.Context, blockId string, rtn map[string]st
 	if v := os.Getenv("MC_AUTH_KEY"); v != "" {
 		rtn["MC_AUTH_KEY"] = v
 	}
+}
+
+// getMCRepoPath returns mc:repopath for the workspace containing blockId, or "".
+func getMCRepoPath(ctx context.Context, blockId string) string {
+	ws := getMCWorkspaceForBlock(ctx, blockId)
+	if ws == nil {
+		return ""
+	}
+	v, _ := ws.Meta["mc:repopath"].(string)
+	return v
+}
+
+// getMCAliasScript returns a sh-compatible init script fragment with MC agent aliases.
+func getMCAliasScript(ctx context.Context, blockId string) string {
+	ws := getMCWorkspaceForBlock(ctx, blockId)
+	if ws == nil {
+		return ""
+	}
+	repoPath, _ := ws.Meta["mc:repopath"].(string)
+	projectId, _ := ws.Meta["mc:projectid"].(string)
+	if projectId == "" {
+		return ""
+	}
+	cdLine := ""
+	if repoPath != "" {
+		cdLine = fmt.Sprintf("[ -d %q ] && cd %q\n", repoPath, repoPath)
+	}
+	return cdLine + `alias cc='claude'
+alias cx='codex'
+alias gm='gemini'
+alias oc='opencode'
+`
 }
 
 func resolveEnvMap(blockId string, blockMeta waveobj.MetaMapType, connName string) (map[string]string, error) {

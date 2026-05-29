@@ -490,5 +490,9 @@ func makeSwapToken(ctx context.Context, logCtx context.Context, blockId string, 
 		token.Env[k] = v
 	}
 	token.ScriptText = getCustomInitScript(logCtx, blockMeta, remoteName, shellType)
+	// Prepend MC aliases + cd to project dir for terminals in MC-bound workspaces
+	if mcScript := getMCAliasScript(ctx, blockId); mcScript != "" {
+		token.ScriptText = mcScript + token.ScriptText
+	}
 	return token
 }

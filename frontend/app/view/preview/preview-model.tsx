@@ -6,7 +6,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { TabModel } from "@/app/store/tab-model";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { getOverrideConfigAtom, refocusNode } from "@/store/global";
+import { atoms, getOverrideConfigAtom, refocusNode } from "@/store/global";
 import * as WOS from "@/store/wos";
 import { goHistory, goHistoryBack, goHistoryForward } from "@/util/historyutil";
 import { checkKeyPressed } from "@/util/keyutil";
@@ -380,7 +380,9 @@ export class PreviewModel implements ViewModel {
         this.metaFilePath = atom<string>((get) => {
             const file = get(this.blockAtom)?.meta?.file;
             if (isBlank(file)) {
-                return "~";
+                const ws = get(atoms.workspace);
+                const repoPath = ws?.meta?.["mc:repopath"] as string;
+                return repoPath || "~";
             }
             return file;
         });
