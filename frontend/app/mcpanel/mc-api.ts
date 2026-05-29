@@ -86,6 +86,10 @@ export async function fetchProjects(): Promise<MCProject[]> {
     return mcFetch("/api/projects");
 }
 
+export async function createProject(project: { name: string; repopath: string; description?: string }): Promise<MCProject> {
+    return mcFetch("/api/projects", { method: "POST", body: JSON.stringify(project) });
+}
+
 export async function fetchProject(projectId: string): Promise<MCProject> {
     return mcFetch(`/api/projects/${encodeURIComponent(projectId)}`);
 }

@@ -3,10 +3,13 @@
 
 import { atoms, createBlock, getApi } from "@/store/global";
 import { globalStore } from "@/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import * as WOS from "@/store/wos";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { memo, useCallback } from "react";
-import { createIntent, createSession, MCTask, patchTask } from "./mc-api";
+import { memo, useCallback, useState } from "react";
+import { createIntent, createSession, createProject, MCTask, patchTask } from "./mc-api";
 import { MCPanelModel } from "./mcpanel-model";
 
 const StatusDot = memo(({ status }: { status: string }) => {
@@ -150,6 +153,80 @@ const TaskGroup = memo(({ title, tasks, defaultOpen = true }: { title: string; t
 });
 TaskGroup.displayName = "TaskGroup";
 
+const MCSetupForm = memo(() => {
+    const ws = useAtomValue(atoms.workspace);
+    const homeDir = getApi().getHomeDir() ?? "~";
+    const [name, setName] = useState("");
+    const [repoPath, setRepoPath] = useState(homeDir + "/Projects/");
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleCreate = () => {
+        if (!name.trim() || !repoPath.trim()) return;
+        setSaving(true);
+        setError(null);
+        fireAndForget(async () => {
+            try {
+                const project = await createProject({ name: name.trim(), repopath: repoPath.trim() });
+                await RpcApi.SetMetaCommand(TabRpcClient, {
+                    oref: WOS.makeORef("workspace", ws?.oid ?? ""),
+                    meta: {
+                        "mc:projectid": project.id,
+                        "mc:projectname": project.name,
+                        "mc:repopath": project.repopath,
+                    } as any,
+                });
+                MCPanelModel.getInstance().loadData();
+            } catch (e: any) {
+                setError(e?.message ?? "Failed to create project");
+            } finally {
+                setSaving(false);
+            }
+        });
+    };
+
+    return (
+        <div className="flex flex-col h-full px-4 py-6 gap-3">
+            <div className="text-center mb-2">
+                <i className="fa fa-satellite-dish text-3xl text-zinc-500 mb-2 block" />
+                <div className="text-sm font-semibold text-zinc-300">Set up Mission Control</div>
+                <div className="text-xs text-zinc-500 mt-1">Create a project for this workspace</div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+                <label className="text-xs text-zinc-400">Project name</label>
+                <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. waveterm-mc"
+                    className="bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-accent"
+                />
+            </div>
+
+            <div className="flex flex-col gap-1">
+                <label className="text-xs text-zinc-400">Repo path</label>
+                <input
+                    value={repoPath}
+                    onChange={(e) => setRepoPath(e.target.value)}
+                    placeholder="/Users/you/Projects/myproject"
+                    className="bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-accent font-mono"
+                />
+            </div>
+
+            {error && <div className="text-xs text-red-400">{error}</div>}
+
+            <button
+                onClick={handleCreate}
+                disabled={!name.trim() || !repoPath.trim() || saving}
+                className="bg-accent/80 text-primary rounded py-1.5 text-sm font-semibold hover:bg-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-1"
+            >
+                {saving ? "Creating…" : "Create & Bind"}
+            </button>
+        </div>
+    );
+});
+MCSetupForm.displayName = "MCSetupForm";
+
 export const MCPanelTasks = memo(() => {
     const model = MCPanelModel.getInstance();
     const tasks = useAtomValue(model.tasksAtom);
@@ -160,13 +237,7 @@ export const MCPanelTasks = memo(() => {
     const projectName = ws?.meta?.["mc:projectname"] as string;
 
     if (!projectId) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-zinc-500 px-4 text-center">
-                <i className="fa fa-satellite-dish text-2xl mb-2" />
-                <div className="text-sm">No project bound</div>
-                <div className="text-xs mt-1">Click the workspace name → edit → set MC Project</div>
-            </div>
-        );
+        return <MCSetupForm />;
     }
 
     const doing = tasks.filter((t) => t.status === "doing");
