@@ -4,6 +4,7 @@
 import * as electron from "electron";
 import * as child_process from "node:child_process";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "readline";
@@ -54,15 +55,26 @@ export function runMcSrv(): Promise<boolean> {
         pReject = argReject;
     });
 
-    const envCopy = { ...process.env };
-    envCopy[McAuthKeyEnvName] = McAuthKey;
-    envCopy["MC_DATA_HOME"] = getMcDataHome();
+    const dataHome = getMcDataHome();
+    try {
+        fs.mkdirSync(dataHome, { recursive: true });
+    } catch (_) {}
 
     const mcSrvCmd = getMcSrvPath();
+    if (!fs.existsSync(mcSrvCmd)) {
+        const err = new Error(`mcsrv binary not found: ${mcSrvCmd}`);
+        console.log(err.message);
+        return Promise.reject(err);
+    }
+
+    const envCopy = { ...process.env };
+    envCopy[McAuthKeyEnvName] = McAuthKey;
+    envCopy["MC_DATA_HOME"] = dataHome;
+
     console.log("trying to run mcsrv", mcSrvCmd);
 
     const proc = child_process.spawn(mcSrvCmd, {
-        cwd: getMcDataHome(),
+        cwd: dataHome,
         env: envCopy,
     });
 

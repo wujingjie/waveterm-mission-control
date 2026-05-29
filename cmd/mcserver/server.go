@@ -116,7 +116,7 @@ func handleGetProjects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+	writeJSON(w, http.StatusOK, projects)
 }
 
 func handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +171,7 @@ func handleGetTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	writeJSON(w, http.StatusOK, tasks)
 }
 
 func handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +239,7 @@ func handleGetSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	writeJSON(w, http.StatusOK, sessions)
 }
 
 func handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +292,7 @@ func handleGetIntents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"intents": intents})
+	writeJSON(w, http.StatusOK, intents)
 }
 
 func handleCreateIntent(w http.ResponseWriter, r *http.Request) {
@@ -390,7 +390,7 @@ func handleGetActivities(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"activities": activities})
+	writeJSON(w, http.StatusOK, activities)
 }
 
 func handleSSEEvents(w http.ResponseWriter, r *http.Request) {

@@ -1,13 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { atoms, getApi } from "@/store/global";
+import { atoms, createBlock, getApi } from "@/store/global";
 import { globalStore } from "@/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { ObjectService } from "@/app/store/services";
 import { cn, fireAndForget } from "@/util/util";
-import * as WOS from "@/store/wos";
 import { useAtomValue } from "jotai";
 import { memo, useCallback } from "react";
 import { createIntent, createSession, MCTask, patchTask } from "./mc-api";
@@ -54,8 +50,8 @@ const TaskCard = memo(({ task }: { task: MCTask }) => {
             const apiUrl = getApi().getEnv("MC_API_URL") ?? "http://127.0.0.1:3001";
             const authKey = getApi().getEnv("MC_AUTH_KEY") ?? "";
 
-            // Create intent in MC API
-            const intent = await createIntent({
+            // Create intent in MC API (tracking record)
+            await createIntent({
                 type: "start-agent",
                 projectid: projectId,
                 taskid: task.id,
@@ -64,13 +60,15 @@ const TaskCard = memo(({ task }: { task: MCTask }) => {
                 createdby: "mc-panel",
             });
 
-            // Create terminal block directly from frontend
+            // Create terminal block with agent command and inject it into the layout
             const command = getAgentCommand(task.executor || "claude");
             const blockDef: BlockDef = {
                 meta: {
                     view: "term",
-                    controller: "shell",
-                    "cmd:cwd": repoPath,
+                    controller: "cmd",
+                    cmd: command,
+                    "cmd:interactive": true,
+                    "cmd:cwd": repoPath || undefined,
                     "cmd:env": {
                         MC_PROJECT_ID: projectId,
                         MC_TASK_ID: task.id,
@@ -79,8 +77,8 @@ const TaskCard = memo(({ task }: { task: MCTask }) => {
                     },
                 },
             };
-            const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
-            const blockId = await ObjectService.CreateBlock(blockDef, rtOpts);
+            // createBlock handles both CreateBlock RPC and inserting into current tab layout
+            const blockId = await createBlock(blockDef);
 
             // Register session in MC API
             await createSession({

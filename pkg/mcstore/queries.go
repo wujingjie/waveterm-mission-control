@@ -6,11 +6,53 @@ package mcstore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
+
+// allowedColumns defines the safe set of column names for each table's PATCH endpoint.
+// Keys entered by API callers are validated against this list before being spliced into SQL.
+var allowedColumns = map[string]map[string]bool{
+	"projects": {
+		"name": true, "description": true, "repo_path": true, "obsidian_path": true,
+	},
+	"tasks": {
+		"title": true, "description": true, "status": true, "priority": true,
+		"executor": true, "depends_on": true, "context_notes": true, "phase": true,
+		"phase_order": true, "scheduled_at": true, "auto_trigger": true,
+		"batch_id": true, "worktree_path": true, "base_commit": true, "updated_at": true,
+	},
+	"agent_sessions": {
+		"status": true, "last_seen_at": true, "transcript_path": true,
+		"terminal_block_id": true, "run_id": true,
+	},
+	"intents": {
+		"status": true, "executed_at": true, "retry_count": true, "error_message": true,
+		"claimed_by": true, "claimed_at": true, "lease_expires_at": true,
+	},
+}
+
+func buildUpdateQuery(table string, id string, fields map[string]any) (string, []any, error) {
+	allowed := allowedColumns[table]
+	setClauses := []string{}
+	args := []any{}
+	for k, v := range fields {
+		if allowed != nil && !allowed[k] {
+			return "", nil, fmt.Errorf("column %q is not allowed in UPDATE %s", k, table)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = ?", k))
+		args = append(args, v)
+	}
+	if len(setClauses) == 0 {
+		return "", nil, fmt.Errorf("no valid fields to update")
+	}
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", table, strings.Join(setClauses, ", "))
+	args = append(args, id)
+	return query, args, nil
+}
 
 var globalDB *sqlx.DB
 
@@ -33,7 +75,7 @@ func nowISO() string {
 // Projects
 
 func GetAllProjects(ctx context.Context) ([]*Project, error) {
-	var projects []*Project
+	projects := []*Project{}
 	err := globalDB.SelectContext(ctx, &projects, `SELECT * FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -68,27 +110,18 @@ func UpdateProject(ctx context.Context, id string, fields map[string]any) error 
 	if len(fields) == 0 {
 		return nil
 	}
-	query := "UPDATE projects SET "
-	args := []any{}
-	i := 0
-	for k, v := range fields {
-		if i > 0 {
-			query += ", "
-		}
-		query += fmt.Sprintf("%s = ?", k)
-		args = append(args, v)
-		i++
+	query, args, err := buildUpdateQuery("projects", id, fields)
+	if err != nil {
+		return err
 	}
-	query += " WHERE id = ?"
-	args = append(args, id)
-	_, err := globalDB.ExecContext(ctx, query, args...)
+	_, err = globalDB.ExecContext(ctx, query, args...)
 	return err
 }
 
 // Tasks
 
 func GetTasksByProject(ctx context.Context, projectId string, status string) ([]*Task, error) {
-	var tasks []*Task
+	tasks := []*Task{}
 	query := `SELECT * FROM tasks WHERE project_id = ?`
 	args := []any{projectId}
 	if status != "" {
@@ -137,27 +170,18 @@ func UpdateTask(ctx context.Context, id string, fields map[string]any) error {
 		return nil
 	}
 	fields["updated_at"] = nowISO()
-	query := "UPDATE tasks SET "
-	args := []any{}
-	i := 0
-	for k, v := range fields {
-		if i > 0 {
-			query += ", "
-		}
-		query += fmt.Sprintf("%s = ?", k)
-		args = append(args, v)
-		i++
+	query, args, err := buildUpdateQuery("tasks", id, fields)
+	if err != nil {
+		return err
 	}
-	query += " WHERE id = ?"
-	args = append(args, id)
-	_, err := globalDB.ExecContext(ctx, query, args...)
+	_, err = globalDB.ExecContext(ctx, query, args...)
 	return err
 }
 
 // AgentSessions
 
 func GetSessionsByProject(ctx context.Context, projectId string, status string) ([]*AgentSession, error) {
-	var sessions []*AgentSession
+	sessions := []*AgentSession{}
 	query := `SELECT * FROM agent_sessions WHERE project_id = ?`
 	args := []any{projectId}
 	if status != "" {
@@ -194,20 +218,11 @@ func UpdateSession(ctx context.Context, id string, fields map[string]any) error 
 	if len(fields) == 0 {
 		return nil
 	}
-	query := "UPDATE agent_sessions SET "
-	args := []any{}
-	i := 0
-	for k, v := range fields {
-		if i > 0 {
-			query += ", "
-		}
-		query += fmt.Sprintf("%s = ?", k)
-		args = append(args, v)
-		i++
+	query, args, err := buildUpdateQuery("agent_sessions", id, fields)
+	if err != nil {
+		return err
 	}
-	query += " WHERE id = ?"
-	args = append(args, id)
-	_, err := globalDB.ExecContext(ctx, query, args...)
+	_, err = globalDB.ExecContext(ctx, query, args...)
 	return err
 }
 
@@ -235,7 +250,7 @@ func MarkStaleSessionsOlderThan(ctx context.Context, seconds int) (int64, error)
 // Intents
 
 func GetIntents(ctx context.Context, projectId string, status string) ([]*Intent, error) {
-	var intents []*Intent
+	intents := []*Intent{}
 	query := `SELECT * FROM intents WHERE 1=1`
 	args := []any{}
 	if projectId != "" {
@@ -276,20 +291,11 @@ func UpdateIntent(ctx context.Context, id string, fields map[string]any) error {
 	if len(fields) == 0 {
 		return nil
 	}
-	query := "UPDATE intents SET "
-	args := []any{}
-	i := 0
-	for k, v := range fields {
-		if i > 0 {
-			query += ", "
-		}
-		query += fmt.Sprintf("%s = ?", k)
-		args = append(args, v)
-		i++
+	query, args, err := buildUpdateQuery("intents", id, fields)
+	if err != nil {
+		return err
 	}
-	query += " WHERE id = ?"
-	args = append(args, id)
-	_, err := globalDB.ExecContext(ctx, query, args...)
+	_, err = globalDB.ExecContext(ctx, query, args...)
 	return err
 }
 
@@ -353,7 +359,7 @@ func ClaimNextPendingIntent(ctx context.Context, claimedBy string) (*Intent, err
 // Activities
 
 func GetActivities(ctx context.Context, projectId string, taskId string, limit int) ([]*Activity, error) {
-	var activities []*Activity
+	activities := []*Activity{}
 	query := `SELECT * FROM activities WHERE 1=1`
 	args := []any{}
 	if projectId != "" {

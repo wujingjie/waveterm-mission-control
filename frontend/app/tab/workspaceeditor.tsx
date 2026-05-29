@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { atoms, getApi } from "@/app/store/global";
+import { fetchProjects, MCProject } from "@/app/mcpanel/mc-api";
+import { atoms } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget, makeIconClass } from "@/util/util";
@@ -62,12 +63,6 @@ const IconSelector = memo(({ icons, selectedIcon, onSelect, className }: IconSel
 });
 IconSelector.displayName = "IconSelector";
 
-type MCProject = {
-    id: string;
-    name: string;
-    repopath: string;
-};
-
 const MCProjectSelector = memo(({ workspaceId }: { workspaceId: string }) => {
     const ws = useAtomValue(atoms.workspace);
     const [projects, setProjects] = useState<MCProject[]>([]);
@@ -75,13 +70,9 @@ const MCProjectSelector = memo(({ workspaceId }: { workspaceId: string }) => {
     const selectedId = (ws?.meta?.["mc:projectid"] as string) ?? "";
 
     useEffect(() => {
-        const apiUrl = getApi().getEnv("MC_API_URL") ?? "http://127.0.0.1:3001";
-        const authKey = getApi().getEnv("MC_AUTH_KEY") ?? "";
-        if (!authKey) return;
         setLoading(true);
-        fetch(`${apiUrl}/api/projects`, { headers: { Authorization: `Bearer ${authKey}` } })
-            .then((r) => (r.ok ? r.json() : []))
-            .then((data: MCProject[]) => setProjects(data ?? []))
+        fetchProjects()
+            .then((data) => setProjects(data ?? []))
             .catch(() => setProjects([]))
             .finally(() => setLoading(false));
     }, []);

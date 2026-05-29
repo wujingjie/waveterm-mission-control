@@ -82,6 +82,10 @@ export async function fetchSessions(projectId: string): Promise<MCSession[]> {
     return mcFetch(`/api/sessions?project_id=${encodeURIComponent(projectId)}`);
 }
 
+export async function fetchProjects(): Promise<MCProject[]> {
+    return mcFetch("/api/projects");
+}
+
 export async function fetchProject(projectId: string): Promise<MCProject> {
     return mcFetch(`/api/projects/${encodeURIComponent(projectId)}`);
 }
