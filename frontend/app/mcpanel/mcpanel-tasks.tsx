@@ -8,7 +8,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import * as WOS from "@/store/wos";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { createIntent, createSession, createProject, MCTask, patchTask } from "./mc-api";
 import { MCPanelModel } from "./mcpanel-model";
 
@@ -156,29 +156,64 @@ TaskGroup.displayName = "TaskGroup";
 const MCSetupForm = memo(() => {
     const ws = useAtomValue(atoms.workspace);
     const homeDir = getApi().getHomeDir() ?? "~";
-    const [name, setName] = useState("");
-    const [repoPath, setRepoPath] = useState(homeDir + "/Projects/");
+    const [projects, setProjects] = useState<import("./mc-api").MCProject[]>([]);
+    const [mode, setMode] = useState<"select" | "add">("select");
+    const [selectedId, setSelectedId] = useState("");
+    const [repoPath, setRepoPath] = useState("");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const handleCreate = () => {
-        if (!name.trim() || !repoPath.trim()) return;
+    useEffect(() => {
+        import("./mc-api").then(({ fetchProjects }) =>
+            fetchProjects()
+                .then((list) => {
+                    setProjects(list ?? []);
+                    setMode(list?.length > 0 ? "select" : "add");
+                })
+                .catch(() => setMode("add"))
+        );
+    }, []);
+
+    const bindProject = async (project: import("./mc-api").MCProject) => {
+        await RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("workspace", ws?.oid ?? ""),
+            meta: {
+                "mc:projectid": project.id,
+                "mc:projectname": project.name,
+                "mc:repopath": project.repopath,
+            } as any,
+        });
+        MCPanelModel.getInstance().loadData();
+    };
+
+    const handleSelect = () => {
+        const project = projects.find((p) => p.id === selectedId);
+        if (!project) return;
         setSaving(true);
         setError(null);
         fireAndForget(async () => {
             try {
-                const project = await createProject({ name: name.trim(), repopath: repoPath.trim() });
-                await RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("workspace", ws?.oid ?? ""),
-                    meta: {
-                        "mc:projectid": project.id,
-                        "mc:projectname": project.name,
-                        "mc:repopath": project.repopath,
-                    } as any,
-                });
-                MCPanelModel.getInstance().loadData();
+                await bindProject(project);
             } catch (e: any) {
-                setError(e?.message ?? "Failed to create project");
+                setError(e?.message ?? "Failed to link project");
+            } finally {
+                setSaving(false);
+            }
+        });
+    };
+
+    const handleAdd = () => {
+        if (!repoPath.trim()) return;
+        setSaving(true);
+        setError(null);
+        fireAndForget(async () => {
+            try {
+                const name = repoPath.trim().split("/").filter(Boolean).pop() ?? repoPath.trim();
+                const { createProject } = await import("./mc-api");
+                const project = await createProject({ name, repopath: repoPath.trim() });
+                await bindProject(project);
+            } catch (e: any) {
+                setError(e?.message ?? "Failed to add project");
             } finally {
                 setSaving(false);
             }
@@ -189,39 +224,69 @@ const MCSetupForm = memo(() => {
         <div className="flex flex-col h-full px-4 py-6 gap-3">
             <div className="text-center mb-2">
                 <i className="fa fa-satellite-dish text-3xl text-zinc-500 mb-2 block" />
-                <div className="text-sm font-semibold text-zinc-300">Set up Mission Control</div>
-                <div className="text-xs text-zinc-500 mt-1">Create a project for this workspace</div>
+                <div className="text-sm font-semibold text-zinc-300">Link a project</div>
+                <div className="text-xs text-zinc-500 mt-1">Which repo is this workspace for?</div>
             </div>
 
-            <div className="flex flex-col gap-1">
-                <label className="text-xs text-zinc-400">Project name</label>
-                <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. waveterm-mc"
-                    className="bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-accent"
-                />
-            </div>
-
-            <div className="flex flex-col gap-1">
-                <label className="text-xs text-zinc-400">Repo path</label>
-                <input
-                    value={repoPath}
-                    onChange={(e) => setRepoPath(e.target.value)}
-                    placeholder="/Users/you/Projects/myproject"
-                    className="bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-accent font-mono"
-                />
-            </div>
-
-            {error && <div className="text-xs text-red-400">{error}</div>}
-
-            <button
-                onClick={handleCreate}
-                disabled={!name.trim() || !repoPath.trim() || saving}
-                className="bg-accent/80 text-primary rounded py-1.5 text-sm font-semibold hover:bg-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-1"
-            >
-                {saving ? "Creating…" : "Create & Bind"}
-            </button>
+            {mode === "select" && projects.length > 0 ? (
+                <>
+                    <select
+                        value={selectedId}
+                        onChange={(e) => setSelectedId(e.target.value)}
+                        className="bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 text-sm text-white cursor-pointer focus:outline-none focus:border-accent"
+                    >
+                        <option value="">— Select a project —</option>
+                        {projects.map((p) => (
+                            <option key={p.id} value={p.id}>
+                                {p.name} {p.repopath ? `(${p.repopath.split("/").pop()})` : ""}
+                            </option>
+                        ))}
+                    </select>
+                    {error && <div className="text-xs text-red-400">{error}</div>}
+                    <button
+                        onClick={handleSelect}
+                        disabled={!selectedId || saving}
+                        className="bg-accent/80 text-primary rounded py-1.5 text-sm font-semibold hover:bg-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        {saving ? "Linking…" : "Link to this workspace"}
+                    </button>
+                    <button
+                        onClick={() => setMode("add")}
+                        className="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer text-center"
+                    >
+                        + Add a new repo instead
+                    </button>
+                </>
+            ) : (
+                <>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs text-zinc-400">Repo path</label>
+                        <input
+                            value={repoPath}
+                            onChange={(e) => setRepoPath(e.target.value)}
+                            placeholder={homeDir + "/Projects/my-project"}
+                            className="bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-accent font-mono"
+                        />
+                        <div className="text-[10px] text-zinc-600">Project name will be auto-detected from the folder name</div>
+                    </div>
+                    {error && <div className="text-xs text-red-400">{error}</div>}
+                    <button
+                        onClick={handleAdd}
+                        disabled={!repoPath.trim() || saving}
+                        className="bg-accent/80 text-primary rounded py-1.5 text-sm font-semibold hover:bg-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        {saving ? "Linking…" : "Link to this workspace"}
+                    </button>
+                    {projects.length > 0 && (
+                        <button
+                            onClick={() => setMode("select")}
+                            className="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer text-center"
+                        >
+                            ← Choose from existing projects
+                        </button>
+                    )}
+                </>
+            )}
         </div>
     );
 });
@@ -237,7 +302,17 @@ export const MCPanelTasks = memo(() => {
     const projectName = ws?.meta?.["mc:projectname"] as string;
 
     if (!projectId) {
-        return <MCSetupForm />;
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-zinc-500 px-6 text-center gap-3">
+                <i className="fa fa-satellite-dish text-3xl" />
+                <div>
+                    <div className="text-sm font-semibold text-zinc-300 mb-1">No project linked</div>
+                    <div className="text-xs leading-relaxed">
+                        Click the <span className="text-zinc-300 font-mono">workspace name</span> → <i className="fa fa-pencil text-[10px]" /> to edit → choose a project at the bottom.
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     const doing = tasks.filter((t) => t.status === "doing");

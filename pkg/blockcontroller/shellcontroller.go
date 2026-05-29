@@ -756,6 +756,58 @@ func (bc *ShellController) getBlockData_noErr() *waveobj.Block {
 	return blockData
 }
 
+func injectMCWorkspaceEnv(ctx context.Context, blockId string, rtn map[string]string) {
+	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+	if err != nil || block == nil {
+		return
+	}
+	// ParentORef is "tab:<id>", extract the tab ID
+	parentORef := block.ParentORef
+	if len(parentORef) <= 4 || parentORef[:4] != "tab:" {
+		return
+	}
+	tabId := parentORef[4:]
+
+	// Tab has no WorkspaceId field, so scan all workspaces for the one containing this tab
+	workspaces, err := wstore.DBGetAllObjsByType[*waveobj.Workspace](ctx, waveobj.OType_Workspace)
+	if err != nil {
+		return
+	}
+	var ws *waveobj.Workspace
+	for _, w := range workspaces {
+		for _, tid := range w.TabIds {
+			if tid == tabId {
+				ws = w
+				break
+			}
+		}
+		if ws != nil {
+			break
+		}
+	}
+	if ws == nil {
+		return
+	}
+
+	projectId, _ := ws.Meta["mc:projectid"].(string)
+	if projectId == "" {
+		return
+	}
+	rtn["MC_PROJECT_ID"] = projectId
+	if v, ok := ws.Meta["mc:projectname"].(string); ok && v != "" {
+		rtn["MC_PROJECT_NAME"] = v
+	}
+	if v, ok := ws.Meta["mc:repopath"].(string); ok && v != "" {
+		rtn["MC_REPO"] = v
+	}
+	if v := os.Getenv("MC_API_URL"); v != "" {
+		rtn["MC_API_URL"] = v
+	}
+	if v := os.Getenv("MC_AUTH_KEY"); v != "" {
+		rtn["MC_AUTH_KEY"] = v
+	}
+}
+
 func resolveEnvMap(blockId string, blockMeta waveobj.MetaMapType, connName string) (map[string]string, error) {
 	rtn := make(map[string]string)
 	config := wconfig.GetWatcher().GetFullConfig()
@@ -766,6 +818,9 @@ func resolveEnvMap(blockId string, blockMeta waveobj.MetaMapType, connName strin
 	}
 	ctx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelFn()
+	// Inject MC workspace env vars for any terminal in a MC-bound workspace.
+	// This runs for ALL terminal creation paths, not just Cmd+N.
+	injectMCWorkspaceEnv(ctx, blockId, rtn)
 	_, envFileData, err := filestore.WFS.ReadFile(ctx, blockId, wavebase.BlockFile_Env)
 	if err == fs.ErrNotExist {
 		err = nil
