@@ -11,6 +11,9 @@ import { VTabBar } from "@/app/tab/vtabbar";
 import { Widgets } from "@/app/workspace/widgets";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { atoms, getApi, getSettingsKeyAtom } from "@/store/global";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import * as WOS from "@/store/wos";
 import { isMacOS } from "@/util/platformutil";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef } from "react";
@@ -95,6 +98,21 @@ const WorkspaceElem = memo(() => {
     useEffect(() => {
         workspaceLayoutModel.setShowLeftTabBar(showLeftTabBar);
     }, [showLeftTabBar]);
+
+    // When workspace has no MC project bound, auto-open MC panel so user is prompted to link one.
+    useEffect(() => {
+        if (!ws?.oid) return;
+        const projectId = ws?.meta?.["mc:projectid"] as string;
+        if (projectId) return;
+        // Only auto-open if the panel isn't already open
+        if (workspaceLayoutModel.getAIPanelVisible()) return;
+        // Set mc:panelmode to "mc" so the MC tab shows (not Wave AI)
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("workspace", ws.oid),
+            meta: { "mc:panelmode": "mc" } as any,
+        }).catch(() => {});
+        workspaceLayoutModel.setAIPanelVisible(true, { nofocus: true });
+    }, [ws?.oid]);
 
     useEffect(() => {
         const handleFocus = () => workspaceLayoutModel.syncVTabWidthFromMeta();
